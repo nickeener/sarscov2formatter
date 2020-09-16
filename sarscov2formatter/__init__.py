@@ -189,7 +189,7 @@ def formatter(align, meta_source):
 
 	# Write metadata to a json file
 	with open('meta.json', 'w') as file:
-		json.dump(meta, file, indent=1)
+		json.dump(meta, file, indent=1, sort_keys=True)
 
 
 	# Recreate multi_seqs using only the accession that metadata could be extracted from
@@ -223,7 +223,7 @@ def formatter(align, meta_source):
 			dupID = m
 			dups[dupID] = {'0': dupID}
 	with open('duplicates.json', 'w') as file:
-		json.dump(dups, file, indent=1)
+		json.dump(dups, file, indent=1, sort_keys=True)
 
 	# Create aligned fasta file in hyphy compatible format using only accessions that metadata could be extracted from
 	meta_records = []
