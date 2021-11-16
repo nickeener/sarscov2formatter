@@ -1,12 +1,10 @@
 #!/usr/bin/env python
-from Bio.Seq import Seq
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 import pandas as pd
 import requests
-import sys
+import io
 import json
-import yaml
 import datetime
 
 # Checks that date is in correct format
@@ -88,7 +86,7 @@ def fixVietnam(instring):
 		return instring
 
 
-def formatter(align, meta_source):
+def formatter(align, metadata, yamlmetadata):
 # Create dictionary of duplicate sequences and list of all accession IDs
 	multi_seqs = {}
 	all_acc = []
@@ -106,68 +104,86 @@ def formatter(align, meta_source):
 			records.append(SeqRecord(record.seq, id=record.id, description=''))
 	all_acc = [a[:-2] if a[-2] == '.' else a for a in all_acc]
 
-
 	# Create metadata file
 	# If ncbi, get metadata from ncbi, otherwise from file
 	meta = {}
 	invalid = []
-	if meta_source == 'ncbi':
-		url = 'https://www.ncbi.nlm.nih.gov/projects/genome/sars-cov-2-seqs/ncov-sequences.yaml'
-		request = requests.get(url, allow_redirects=True)
-		data = yaml.load(request.content, Loader=yaml.FullLoader)
-		for item in data['genbank-sequences']:
+	if metadata is None:
+		if yamlmetadata is None:
+			url = 'https://www.ncbi.nlm.nih.gov/projects/genome/sars-cov-2-seqs/ncov-sequences.yaml'
+			request = requests.get(url, allow_redirects=True)
+			fh = io.StringIO(request.content.decode("utf-8"))
+		else:
+			fh = open(yamlmetadata)
+		item = {}
+		for line in fh:
+			if line.startswith('sra-accessions'):
+				break
+			for key in ["accession", "collection-date", "country"]:
+				if '"' + key + '"' in line:
+					if key == "accession":
+						item = {}
+					v = line.split(":", maxsplit=1)[1].strip().strip('",')
+					if v == "null":
+						v = None
+					item[key] = v
+			# process once "accession", "collection-date", "country" are 
+			if len(item) != 3:
+				continue
 			check = 0
-			if item['accession'] in all_acc:
-				acc = item['accession']
-				date = item['collection-date'].replace('-', '')
-				if len(date) == 6:
-					if acc == 'NC_045512':
-						date = '20200117'
+			if item['accession'] not in all_acc:
+				continue
+			acc = item['accession']
+			date = item['collection-date'].replace('-', '')
+			if len(date) == 6:
+				if acc == 'NC_045512':
+					date = '20200117'
+				else:
+					invalid.append(acc)
+					check = 1
+			if check == 0:
+				location = item['country']
+				try:
+					if ':' in location and ',' in location:
+						country = fixVietnam(location.split(':')[0])
+						subregion = regions[country]
+						if country == 'China':
+							state = location.split(' ')[1][:-1]
+							locality = location.split(',')[1][1:]
+						elif country == 'USA':
+							comma = location.index(',')
+							location = location[:comma+1]+location[comma+2:]
+							state_local = location.split(':')[1][1:]
+							if len(state_local.split(',')[1]) == 2:
+								state = states[state_local.split(',')[1]]
+								locality = state_local.split(',')[0]
+							else:
+								state = states[state_local.split(',')[0]]
+								locality = state_local.split(',')[1]
+					elif ':' in location and ',' not in location:
+						country = fixVietnam(location.split(':')[0])
+						subregion = regions[country]
+						state = location.split(':')[1][1:]
+						locality = None
 					else:
-						invalid.append(acc)
-						check = 1
-				if check == 0:
-					location = item['country']
-					try:
-						if ':' in location and ',' in location:
-							country = fixVietnam(location.split(':')[0])
-							subregion = regions[country]
-							if country == 'China':
-								state = location.split(' ')[1][:-1]
-								locality = location.split(',')[1][1:]
-							elif country == 'USA':
-								comma = location.index(',')
-								location = location[:comma+1]+location[comma+2:]
-								state_local = location.split(':')[1][1:]
-								if len(state_local.split(',')[1]) == 2:
-									state = states[state_local.split(',')[1]]
-									locality = state_local.split(',')[0]
-								else:
-									state = states[state_local.split(',')[0]]
-									locality = state_local.split(',')[1]
-						elif ':' in location and ',' not in location:
-							country = fixVietnam(location.split(':')[0])
-							subregion = regions[country]
-							state = location.split(':')[1][1:]
-							locality = None
-						else:
-							country = fixVietnam(location)
-							subregion = regions[country]
-							state = None
-							locality = None
-						meta[acc] = {
-						  'collected': date,
-						  'location': {
-						    'subregion': subregion,
-						    'country': country, 
-						    'state': state, 
-						    'locality': locality
-						  }
-						}
-					except:
-						pass
+						country = fixVietnam(location)
+						subregion = regions[country]
+						state = None
+						locality = None
+					meta[acc] = {
+					  'collected': date,
+					  'location': {
+					    'subregion': subregion,
+					    'country': country, 
+					    'state': state, 
+					    'locality': locality
+					  }
+					}
+				except:
+					pass
+		fh.close()
 	else:
-		data = pd.read_csv(meta_source, sep='\t')
+		data = pd.read_csv(metadata, sep='\t')
 		data = data.where(pd.notnull(data), None)
 		for i in range(len(data)):
 			if data.iloc[i]['ID'] in all_acc:
