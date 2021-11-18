@@ -111,8 +111,10 @@ def formatter(align, metadata, yamlmetadata):
 	if metadata is None:
 		if yamlmetadata is None:
 			url = 'https://www.ncbi.nlm.nih.gov/projects/genome/sars-cov-2-seqs/ncov-sequences.yaml'
-			request = requests.get(url, allow_redirects=True)
-			fh = io.StringIO(request.content.decode("utf-8"))
+			request = requests.get(url, allow_redirects=True, stream=True)
+			if request.encoding is None:
+				request.encoding = 'utf-8'
+			fh = request.iter_lines(decode_unicode=True)
 		else:
 			fh = open(yamlmetadata)
 		item = {}
@@ -181,9 +183,10 @@ def formatter(align, metadata, yamlmetadata):
 					}
 				except:
 					pass
-		fh.close()
+		if yamlmetadata is not None:
+			fh.close()
 	else:
-		data = pd.read_csv(metadata, sep='\t')
+		data = pd.read_csv(metadata, sep='\t', dtype=str)
 		data = data.where(pd.notnull(data), None)
 		for i in range(len(data)):
 			if data.iloc[i]['ID'] in all_acc:
